@@ -56,6 +56,13 @@ import { TerminalSettings } from './TerminalSettings'
 describe('TerminalSettings', () => {
   beforeEach(() => {
     useSettingsStore.setState({ locale: 'en' })
+    useSettingsStore.setState({
+      desktopTerminal: {
+        startupShell: 'system',
+        customShellPath: '',
+      },
+      setDesktopTerminal: vi.fn().mockResolvedValue(undefined),
+    })
     terminalMocks.available = false
     terminalMocks.spawn.mockReset()
     terminalMocks.write.mockReset()
@@ -141,5 +148,18 @@ describe('TerminalSettings', () => {
 
     expect(terminalMocks.terminalInstance.write).toHaveBeenCalledWith('hello\r\n')
     expect(terminalMocks.terminalInstance.write).not.toHaveBeenCalledWith('ignored\r\n')
+  })
+
+  it('shows Windows-only startup shell controls in settings mode', () => {
+    vi.stubGlobal('navigator', {
+      ...navigator,
+      platform: 'Win32',
+      userAgent: 'Windows',
+    })
+
+    render(<TerminalSettings showPreferences />)
+
+    expect(screen.getAllByText('Startup shell')).toHaveLength(2)
+    expect(screen.getByText('Use for new terminal sessions and after restart.')).toBeInTheDocument()
   })
 })

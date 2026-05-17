@@ -25,6 +25,18 @@ export type H5AccessSettings = {
   publicBaseUrl: string | null
 }
 
+export type DesktopTerminalStartupShell =
+  | 'system'
+  | 'pwsh'
+  | 'powershell'
+  | 'cmd'
+  | 'custom'
+
+export type DesktopTerminalSettings = {
+  startupShell: DesktopTerminalStartupShell
+  customShellPath: string
+}
+
 export type ModelInfo = {
   id: string
   name: string
@@ -43,5 +55,6 @@ export type UserSettings = {
   desktopNotificationsEnabled?: boolean
   webSearch?: WebSearchSettings
   language?: string
+  desktopTerminal?: Partial<DesktopTerminalSettings>
   [key: string]: unknown
 }

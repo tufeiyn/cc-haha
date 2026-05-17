@@ -305,6 +305,127 @@ describe('settingsStore thinking persistence', () => {
   })
 })
 
+describe('settingsStore desktop terminal shell persistence', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    vi.clearAllMocks()
+    window.localStorage.clear()
+  })
+
+  it('hydrates desktop terminal settings from user settings and falls back to system defaults', async () => {
+    vi.doMock('../api/settings', () => ({
+      settingsApi: {
+        getUser: vi.fn().mockResolvedValue({
+          desktopTerminal: {
+            startupShell: 'pwsh',
+            customShellPath: 'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
+          },
+        }),
+        updateUser: vi.fn(),
+        getPermissionMode: vi.fn().mockResolvedValue({ mode: 'default' }),
+        setPermissionMode: vi.fn(),
+        getCliLauncherStatus: vi.fn(),
+      },
+    }))
+    vi.doMock('../api/models', () => ({
+      modelsApi: {
+        list: vi.fn().mockResolvedValue({ models: [] }),
+        getCurrent: vi.fn().mockResolvedValue({ model: null }),
+        setCurrent: vi.fn(),
+        getEffort: vi.fn().mockResolvedValue({ level: 'medium' }),
+        setEffort: vi.fn(),
+      },
+    }))
+    vi.doMock('../api/h5Access', () => ({
+      h5AccessApi: {
+        get: vi.fn().mockResolvedValue({
+          settings: {
+            enabled: false,
+            tokenPreview: null,
+            allowedOrigins: [],
+            publicBaseUrl: null,
+          },
+        }),
+        enable: vi.fn(),
+        disable: vi.fn(),
+        regenerate: vi.fn(),
+        update: vi.fn(),
+      },
+    }))
+
+    const { useSettingsStore } = await import('./settingsStore')
+
+    expect(useSettingsStore.getState().desktopTerminal).toEqual({
+      startupShell: 'system',
+      customShellPath: '',
+    })
+
+    await useSettingsStore.getState().fetchAll()
+
+    expect(useSettingsStore.getState().desktopTerminal).toEqual({
+      startupShell: 'pwsh',
+      customShellPath: 'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
+    })
+  })
+
+  it('persists desktop terminal settings explicitly', async () => {
+    const updateUser = vi.fn().mockResolvedValue({ ok: true })
+
+    vi.doMock('../api/settings', () => ({
+      settingsApi: {
+        getUser: vi.fn(),
+        updateUser,
+        getPermissionMode: vi.fn(),
+        setPermissionMode: vi.fn(),
+        getCliLauncherStatus: vi.fn(),
+      },
+    }))
+    vi.doMock('../api/models', () => ({
+      modelsApi: {
+        list: vi.fn(),
+        getCurrent: vi.fn(),
+        setCurrent: vi.fn(),
+        getEffort: vi.fn(),
+        setEffort: vi.fn(),
+      },
+    }))
+    vi.doMock('../api/h5Access', () => ({
+      h5AccessApi: {
+        get: vi.fn().mockResolvedValue({
+          settings: {
+            enabled: false,
+            tokenPreview: null,
+            allowedOrigins: [],
+            publicBaseUrl: null,
+          },
+        }),
+        enable: vi.fn(),
+        disable: vi.fn(),
+        regenerate: vi.fn(),
+        update: vi.fn(),
+      },
+    }))
+
+    const { useSettingsStore } = await import('./settingsStore')
+
+    await useSettingsStore.getState().setDesktopTerminal({
+      startupShell: 'custom',
+      customShellPath: 'C:\\tools\\pwsh.exe',
+    })
+
+    expect(updateUser).toHaveBeenCalledWith({
+      desktopTerminal: {
+        startupShell: 'custom',
+        customShellPath: 'C:\\tools\\pwsh.exe',
+      },
+    })
+    expect(useSettingsStore.getState().desktopTerminal).toEqual({
+      startupShell: 'custom',
+      customShellPath: 'C:\\tools\\pwsh.exe',
+    })
+  })
+})
+
 describe('settingsStore theme persistence', () => {
   beforeEach(() => {
     vi.resetModules()

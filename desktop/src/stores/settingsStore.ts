@@ -3,7 +3,17 @@ import { ApiError } from '../api/client'
 import { settingsApi } from '../api/settings'
 import { modelsApi } from '../api/models'
 import { h5AccessApi } from '../api/h5Access'
-import { isThemeMode, type H5AccessSettings, type PermissionMode, type EffortLevel, type ModelInfo, type ThemeMode, type WebSearchSettings } from '../types/settings'
+import {
+  isThemeMode,
+  type DesktopTerminalSettings,
+  type DesktopTerminalStartupShell,
+  type H5AccessSettings,
+  type PermissionMode,
+  type EffortLevel,
+  type ModelInfo,
+  type ThemeMode,
+  type WebSearchSettings,
+} from '../types/settings'
 import type { Locale } from '../i18n'
 import {
   APP_ZOOM_CONTROL_STEP,
@@ -42,6 +52,7 @@ type SettingsStore = {
   theme: ThemeMode
   skipWebFetchPreflight: boolean
   desktopNotificationsEnabled: boolean
+  desktopTerminal: DesktopTerminalSettings
   webSearch: WebSearchSettings
   h5Access: H5AccessSettings
   h5AccessError: string | null
@@ -60,6 +71,7 @@ type SettingsStore = {
   setTheme: (theme: ThemeMode) => Promise<void>
   setSkipWebFetchPreflight: (enabled: boolean) => Promise<void>
   setDesktopNotificationsEnabled: (enabled: boolean) => Promise<void>
+  setDesktopTerminal: (settings: DesktopTerminalSettings) => Promise<void>
   setWebSearch: (settings: WebSearchSettings) => Promise<void>
   enableH5Access: () => Promise<string>
   disableH5Access: () => Promise<void>
@@ -79,6 +91,11 @@ const DEFAULT_H5_ACCESS_SETTINGS: H5AccessSettings = {
   publicBaseUrl: null,
 }
 
+const DEFAULT_DESKTOP_TERMINAL_SETTINGS: DesktopTerminalSettings = {
+  startupShell: 'system',
+  customShellPath: '',
+}
+
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
   permissionMode: 'default',
   currentModel: null,
@@ -90,6 +107,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   theme: useUIStore.getState().theme,
   skipWebFetchPreflight: true,
   desktopNotificationsEnabled: false,
+  desktopTerminal: DEFAULT_DESKTOP_TERMINAL_SETTINGS,
   webSearch: { mode: 'auto', tavilyApiKey: '', braveApiKey: '' },
   h5Access: DEFAULT_H5_ACCESS_SETTINGS,
   h5AccessError: null,
@@ -128,6 +146,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         theme,
         skipWebFetchPreflight: userSettings.skipWebFetchPreflight !== false,
         desktopNotificationsEnabled: userSettings.desktopNotificationsEnabled === true,
+        desktopTerminal: normalizeDesktopTerminalSettings(userSettings.desktopTerminal),
         webSearch: normalizeWebSearchSettings(userSettings.webSearch),
         h5Access: h5AccessResult.settings,
         h5AccessError: h5AccessResult.error,
@@ -232,6 +251,18 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     }
   },
 
+  setDesktopTerminal: async (settings) => {
+    const prev = get().desktopTerminal
+    const next = normalizeDesktopTerminalSettings(settings)
+    set({ desktopTerminal: next })
+    try {
+      await settingsApi.updateUser({ desktopTerminal: next })
+    } catch (error) {
+      set({ desktopTerminal: prev })
+      throw error
+    }
+  },
+
   setWebSearch: async (webSearch) => {
     const prev = get().webSearch
     const next = normalizeWebSearchSettings(webSearch)
@@ -320,6 +351,21 @@ function normalizeWebSearchSettings(settings: WebSearchSettings | undefined): We
   }
 }
 
+function normalizeDesktopTerminalSettings(
+  settings: Partial<DesktopTerminalSettings> | undefined,
+): DesktopTerminalSettings {
+  const startupShell = isDesktopTerminalStartupShell(settings?.startupShell)
+    ? settings.startupShell
+    : DEFAULT_DESKTOP_TERMINAL_SETTINGS.startupShell
+
+  return {
+    startupShell,
+    customShellPath: typeof settings?.customShellPath === 'string'
+      ? settings.customShellPath
+      : DEFAULT_DESKTOP_TERMINAL_SETTINGS.customShellPath,
+  }
+}
+
 function normalizeH5AccessSettings(settings: H5AccessSettings | undefined): H5AccessSettings {
   return {
     enabled: settings?.enabled === true,
@@ -365,4 +411,12 @@ function isLegacyH5EndpointError(error: unknown) {
 
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message.trim().length > 0 ? error.message : fallback
+}
+
+function isDesktopTerminalStartupShell(value: unknown): value is DesktopTerminalStartupShell {
+  return value === 'system'
+    || value === 'pwsh'
+    || value === 'powershell'
+    || value === 'cmd'
+    || value === 'custom'
 }

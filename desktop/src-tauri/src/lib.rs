@@ -297,6 +297,25 @@ struct TerminalExitPayload {
     signal: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct DesktopTerminalSettingsFile {
+    desktop_terminal: Option<DesktopTerminalConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct DesktopTerminalConfig {
+    startup_shell: Option<String>,
+    custom_shell_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TerminalHostPlatform {
+    Windows,
+    Posix,
+}
+
 #[tauri::command]
 fn get_server_url(state: State<'_, ServerState>) -> Result<String, String> {
     let guard = state
@@ -612,7 +631,7 @@ fn terminal_spawn(
     cwd: Option<String>,
 ) -> Result<TerminalSpawnResult, String> {
     let cwd_path = resolve_terminal_cwd(cwd)?;
-    let shell = default_shell();
+    let shell = resolved_terminal_shell()?;
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
@@ -1033,6 +1052,78 @@ fn home_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+fn claude_config_dir() -> Option<PathBuf> {
+    std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .or_else(|| home_dir().map(|path| path.join(".claude")))
+}
+
+fn desktop_terminal_settings_path() -> Option<PathBuf> {
+    claude_config_dir().map(|path| path.join("settings.json"))
+}
+
+fn read_desktop_terminal_config() -> Option<DesktopTerminalConfig> {
+    let path = desktop_terminal_settings_path()?;
+    let contents = fs::read_to_string(path).ok()?;
+    let settings = serde_json::from_str::<DesktopTerminalSettingsFile>(&contents).ok()?;
+    settings.desktop_terminal
+}
+
+fn resolved_terminal_shell() -> Result<String, String> {
+    let system_default = default_shell();
+    let platform = current_terminal_host_platform();
+    let configured = read_desktop_terminal_config();
+    let override_shell =
+        resolve_desktop_terminal_shell(platform, configured.as_ref(), &system_default)?;
+    Ok(override_shell.unwrap_or(system_default))
+}
+
+fn current_terminal_host_platform() -> TerminalHostPlatform {
+    #[cfg(target_os = "windows")]
+    {
+        TerminalHostPlatform::Windows
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        TerminalHostPlatform::Posix
+    }
+}
+
+fn resolve_desktop_terminal_shell(
+    platform: TerminalHostPlatform,
+    config: Option<&DesktopTerminalConfig>,
+    _system_default: &str,
+) -> Result<Option<String>, String> {
+    if platform != TerminalHostPlatform::Windows {
+        return Ok(None);
+    }
+
+    let Some(config) = config else {
+        return Ok(None);
+    };
+
+    let Some(startup_shell) = config.startup_shell.as_deref().map(str::trim) else {
+        return Ok(None);
+    };
+
+    match startup_shell {
+        "" | "system" => Ok(None),
+        "pwsh" => Ok(Some("pwsh.exe".to_string())),
+        "powershell" => Ok(Some("powershell.exe".to_string())),
+        "cmd" => Ok(Some("cmd.exe".to_string())),
+        "custom" => {
+            let path = config
+                .custom_shell_path
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| "custom terminal shell path is empty".to_string())?;
+            Ok(Some(path.to_string()))
+        }
+        _ => Ok(None),
+    }
+}
+
 fn default_shell() -> String {
     #[cfg(target_os = "windows")]
     {
@@ -1417,7 +1508,8 @@ mod tests {
     use super::{
         decode_terminal_output, default_utf8_locale, ensure_utf8_locale,
         has_meaningful_intersection, is_persistable_window_state, parse_env_block,
-        run_notification_bridge, select_h5_dist_dir, StoredWindowState, SERVER_BIND_HOST,
+        resolve_desktop_terminal_shell, run_notification_bridge, select_h5_dist_dir,
+        DesktopTerminalConfig, StoredWindowState, TerminalHostPlatform, SERVER_BIND_HOST,
         SERVER_CONTROL_HOST,
     };
     use std::{collections::HashMap, fs};
@@ -1555,6 +1647,50 @@ mod tests {
         assert_eq!(env.get("LANG").map(String::as_str), Some("zh_CN.UTF-8"));
         assert_eq!(env.get("LC_CTYPE").map(String::as_str), Some("en_US.UTF8"));
         assert_eq!(env.get("LC_ALL").map(String::as_str), Some("C.UTF-8"));
+    }
+
+    #[test]
+    fn desktop_terminal_shell_resolution_keeps_system_default_without_preference() {
+        assert_eq!(
+            resolve_desktop_terminal_shell(
+                TerminalHostPlatform::Windows,
+                None,
+                "powershell.exe",
+            )
+            .expect("resolution should succeed"),
+            None
+        );
+    }
+
+    #[test]
+    fn desktop_terminal_shell_resolution_supports_windows_pwsh_and_custom_path() {
+        let pwsh = DesktopTerminalConfig {
+            startup_shell: Some("pwsh".to_string()),
+            custom_shell_path: None,
+        };
+        assert_eq!(
+            resolve_desktop_terminal_shell(
+                TerminalHostPlatform::Windows,
+                Some(&pwsh),
+                "powershell.exe",
+            )
+            .expect("pwsh resolution should succeed"),
+            Some("pwsh.exe".to_string())
+        );
+
+        let custom = DesktopTerminalConfig {
+            startup_shell: Some("custom".to_string()),
+            custom_shell_path: Some("/tmp/custom-shell".to_string()),
+        };
+        assert_eq!(
+            resolve_desktop_terminal_shell(
+                TerminalHostPlatform::Windows,
+                Some(&custom),
+                "powershell.exe",
+            )
+            .expect("custom resolution should succeed"),
+            Some("/tmp/custom-shell".to_string())
+        );
     }
 
     #[test]
