@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import {
   buildOpenAIAuthorizeUrl,
+  exchangeOpenAICodeForTokens,
   generateOpenAICodeVerifier,
   generateOpenAIState,
   OPENAI_CODEX_CLIENT_ID,
+  OPENAI_CODEX_TOKEN_USER_AGENT,
+  refreshOpenAITokens,
 } from './client.js'
 
 describe('OpenAI Codex OAuth client', () => {
@@ -36,5 +39,110 @@ describe('OpenAI Codex OAuth client', () => {
     expect(params.get('id_token_add_organizations')).toBe('true')
     expect(params.get('codex_cli_simplified_flow')).toBe('true')
     expect(params.has('originator')).toBe(false)
+  })
+
+  test('exchanges authorization code with Codex-compatible token request headers', async () => {
+    const originalFetch = globalThis.fetch
+    let tokenRequestUrl = ''
+    let tokenRequestBody = ''
+    let tokenRequestHeaders = new Headers()
+
+    globalThis.fetch = (async (input, init) => {
+      tokenRequestUrl = String(input)
+      tokenRequestBody = String(init?.body ?? '')
+      tokenRequestHeaders = new Headers(init?.headers)
+
+      return new Response(
+        JSON.stringify({
+          access_token: 'access-token',
+          refresh_token: 'refresh-token',
+          expires_in: 3600,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    }) as typeof fetch
+
+    try {
+      await exchangeOpenAICodeForTokens({
+        code: 'auth-code',
+        redirectUri: 'http://localhost:1455/auth/callback',
+        codeVerifier: 'verifier',
+      })
+
+      expect(tokenRequestUrl).toBe('https://auth.openai.com/oauth/token')
+      expect(tokenRequestHeaders.get('Accept')).toBe('application/json')
+      expect(tokenRequestHeaders.get('Content-Type')).toBe(
+        'application/x-www-form-urlencoded',
+      )
+      expect(tokenRequestHeaders.get('User-Agent')).toBe(
+        OPENAI_CODEX_TOKEN_USER_AGENT,
+      )
+      expect(tokenRequestBody).toContain('grant_type=authorization_code')
+      expect(tokenRequestBody).toContain('client_id=app_EMoamEEZ73f0CkXaXp7hrann')
+      expect(tokenRequestBody).toContain('code=auth-code')
+      expect(tokenRequestBody).toContain(
+        `redirect_uri=${encodeURIComponent('http://localhost:1455/auth/callback')}`,
+      )
+      expect(tokenRequestBody).toContain('code_verifier=verifier')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('refreshes tokens with Codex-compatible token request headers', async () => {
+    const originalFetch = globalThis.fetch
+    let tokenRequestBody = ''
+    let tokenRequestHeaders = new Headers()
+
+    globalThis.fetch = (async (_input, init) => {
+      tokenRequestBody = String(init?.body ?? '')
+      tokenRequestHeaders = new Headers(init?.headers)
+
+      return new Response(
+        JSON.stringify({
+          access_token: 'access-token',
+          expires_in: 3600,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    }) as typeof fetch
+
+    try {
+      await refreshOpenAITokens('refresh-token')
+
+      expect(tokenRequestHeaders.get('User-Agent')).toBe(
+        OPENAI_CODEX_TOKEN_USER_AGENT,
+      )
+      expect(tokenRequestBody).toContain('grant_type=refresh_token')
+      expect(tokenRequestBody).toContain('refresh_token=refresh-token')
+      expect(tokenRequestBody).toContain('scope=openid+profile+email')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('includes sanitized token error response details for diagnostics', async () => {
+    const originalFetch = globalThis.fetch
+
+    globalThis.fetch = (async () => {
+      return new Response(
+        '{"error":"forbidden","code":"sensitive-code","refresh_token":"secret"}',
+        { status: 403, headers: { 'Content-Type': 'application/json' } },
+      )
+    }) as typeof fetch
+
+    try {
+      await expect(
+        exchangeOpenAICodeForTokens({
+          code: 'auth-code',
+          redirectUri: 'http://localhost:1455/auth/callback',
+          codeVerifier: 'verifier',
+        }),
+      ).rejects.toThrow(
+        'OpenAI token exchange failed: 403: {"error":"forbidden","code":"[redacted]","refresh_token":"[redacted]"}',
+      )
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 })

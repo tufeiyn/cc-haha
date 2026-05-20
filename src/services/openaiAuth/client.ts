@@ -12,8 +12,16 @@ export const OPENAI_CODEX_API_ENDPOINT =
   'https://chatgpt.com/backend-api/codex/responses'
 export const OPENAI_CODEX_OAUTH_PORT = 1455
 export const OPENAI_CODEX_REDIRECT_PATH = '/auth/callback'
+export const OPENAI_CODEX_TOKEN_USER_AGENT = 'codex-cli/0.91.0'
 
 const DEFAULT_TOKEN_LIFETIME_MS = 3600 * 1000
+const OPENAI_TOKEN_ERROR_BODY_LIMIT = 500
+
+const OPENAI_TOKEN_REQUEST_HEADERS = {
+  Accept: 'application/json',
+  'Content-Type': 'application/x-www-form-urlencoded',
+  'User-Agent': OPENAI_CODEX_TOKEN_USER_AGENT,
+} as const
 
 export function generateOpenAIState(): string {
   return randomBytes(32).toString('hex')
@@ -50,7 +58,7 @@ export async function exchangeOpenAICodeForTokens(input: {
 }): Promise<OpenAIOAuthTokenResponse> {
   const response = await fetch(`${OPENAI_AUTH_ISSUER}/oauth/token`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    headers: OPENAI_TOKEN_REQUEST_HEADERS,
     body: new URLSearchParams({
       grant_type: 'authorization_code',
       code: input.code,
@@ -61,7 +69,7 @@ export async function exchangeOpenAICodeForTokens(input: {
   })
 
   if (!response.ok) {
-    throw new Error(`OpenAI token exchange failed: ${response.status}`)
+    throw await buildOpenAITokenHttpError('exchange', response)
   }
 
   return (await response.json()) as OpenAIOAuthTokenResponse
@@ -72,7 +80,7 @@ export async function refreshOpenAITokens(
 ): Promise<OpenAIOAuthTokenResponse> {
   const response = await fetch(`${OPENAI_AUTH_ISSUER}/oauth/token`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    headers: OPENAI_TOKEN_REQUEST_HEADERS,
     body: new URLSearchParams({
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
@@ -82,10 +90,35 @@ export async function refreshOpenAITokens(
   })
 
   if (!response.ok) {
-    throw new Error(`OpenAI token refresh failed: ${response.status}`)
+    throw await buildOpenAITokenHttpError('refresh', response)
   }
 
   return (await response.json()) as OpenAIOAuthTokenResponse
+}
+
+async function buildOpenAITokenHttpError(
+  operation: 'exchange' | 'refresh',
+  response: Response,
+): Promise<Error> {
+  const body = await response.text().catch(() => '')
+  const sanitizedBody = sanitizeOpenAITokenErrorBody(body)
+  const bodySuffix = sanitizedBody ? `: ${sanitizedBody}` : ''
+  return new Error(
+    `OpenAI token ${operation} failed: ${response.status}${bodySuffix}`,
+  )
+}
+
+function sanitizeOpenAITokenErrorBody(body: string): string {
+  return body
+    .replace(
+      /"((?:access_token|refresh_token|id_token|code|code_verifier))"\s*:\s*"[^"]*"/gi,
+      '"$1":"[redacted]"',
+    )
+    .replace(
+      /\b(access_token|refresh_token|id_token|code|code_verifier)=([^&\s]+)/gi,
+      '$1=[redacted]',
+    )
+    .slice(0, OPENAI_TOKEN_ERROR_BODY_LIMIT)
 }
 
 export function parseOpenAIJwtClaims(
