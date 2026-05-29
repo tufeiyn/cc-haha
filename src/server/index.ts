@@ -15,6 +15,9 @@ import { handleProxyRequest } from './proxy/handler.js'
 import { ProviderService } from './services/providerService.js'
 import { handleHahaOAuthCallback } from './api/haha-oauth.js'
 import { handleHahaOpenAIOAuthCallback } from './api/haha-openai-oauth.js'
+import { handlePreviewFs } from './api/previewFs.js'
+import { sessionService } from './services/sessionService.js'
+import { conversationService } from './services/conversationService.js'
 import { OPENAI_CODEX_REDIRECT_PATH } from '../services/openaiAuth/client.js'
 import { ensureDesktopCliLauncherInstalled } from './services/desktopCliLauncherService.js'
 import { enableConfigs } from '../utils/config.js'
@@ -275,6 +278,32 @@ export function startServer(port = PORT, host = HOST) {
           return handleHahaOpenAIOAuthCallback(url)
         }
 
+        // Preview filesystem — serve sandboxed workspace files for a session.
+        if (url.pathname.startsWith('/preview-fs/')) {
+          if (cors.rejected) {
+            return corsRejectedResponse(cors)
+          }
+
+          if (authRequired) {
+            const authError = await requireH5Token(req)
+            if (authError) {
+              return withCors(authError, cors)
+            }
+          } else if (forceAuth) {
+            const authError = await requireAuth(req)
+            if (authError) {
+              return withCors(authError, cors)
+            }
+          }
+
+          const response = await handlePreviewFs(url, async (sessionId) =>
+            conversationService.getSessionWorkDir(sessionId) ||
+            (await sessionService.getSessionWorkDir(sessionId)) ||
+            null,
+          )
+          return withCors(response, cors)
+        }
+
         // REST API
         if (url.pathname.startsWith('/api/')) {
           if (cors.rejected) {
@@ -396,7 +425,6 @@ export function startServer(port = PORT, host = HOST) {
 }
 
 // ─── Graceful shutdown: kill all CLI subprocesses on exit ────────────────────
-import { conversationService } from './services/conversationService.js'
 
 function cleanupAllSessions() {
   const active = conversationService.getActiveSessions()
