@@ -316,6 +316,72 @@ describe('ChatInput file mentions', () => {
     })
   })
 
+  it('appends a delayed browser screenshot without clearing an unsent draft after remount', async () => {
+    const { unmount } = render(<ChatInput compact />)
+
+    const input = screen.getByRole('textbox') as HTMLTextAreaElement
+    fireEvent.change(input, {
+      target: { value: 'draft written while the agent is still running', selectionStart: 44 },
+    })
+    expect(input.value).toBe('draft written while the agent is still running')
+
+    unmount()
+
+    act(() => {
+      useChatStore.getState().queueComposerPrefill(sessionId, {
+        text: '',
+        mode: 'append',
+        attachments: [{
+          type: 'image',
+          name: 'screenshot-full.png',
+          mimeType: 'image/png',
+          data: 'data:image/png;base64,DELAYED',
+        }],
+      })
+    })
+
+    render(<ChatInput compact />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('textbox')).toHaveValue('draft written while the agent is still running')
+      expect(screen.getByAltText('screenshot-full.png')).toBeInTheDocument()
+    })
+  })
+
+  it('does not replay a handled browser screenshot after the composer remounts', async () => {
+    const { unmount } = render(<ChatInput compact />)
+
+    act(() => {
+      useChatStore.getState().queueComposerPrefill(sessionId, {
+        text: '',
+        mode: 'append',
+        attachments: [{
+          type: 'image',
+          name: 'screenshot-full.png',
+          mimeType: 'image/png',
+          data: 'data:image/png;base64,OLD',
+        }],
+      })
+    })
+
+    await waitFor(() => {
+      expect(screen.getByAltText('screenshot-full.png')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByLabelText('Remove screenshot-full.png'))
+
+    await waitFor(() => {
+      expect(screen.queryByAltText('screenshot-full.png')).not.toBeInTheDocument()
+    })
+
+    unmount()
+    render(<ChatInput compact />)
+
+    await waitFor(() => {
+      expect(screen.queryByAltText('screenshot-full.png')).not.toBeInTheDocument()
+    })
+  })
+
   it('shows branch and worktree launch controls for an empty active Git session', async () => {
     useSessionStore.setState({
       sessions: [{

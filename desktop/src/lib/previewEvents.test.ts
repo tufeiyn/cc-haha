@@ -38,6 +38,7 @@ describe('subscribePreviewEvents', () => {
     await subscribePreviewEvents('s1')
     listeners['preview://event']!({ payload: JSON.stringify({ v: 1, type: 'screenshot', dataUrl: 'data:image/png;base64,AAAA', kind: 'full' }) })
     expect(prefill).toHaveBeenCalledWith('s1', expect.objectContaining({
+      mode: 'append',
       attachments: [expect.objectContaining({ type: 'image', data: 'data:image/png;base64,AAAA' })],
     }))
   })

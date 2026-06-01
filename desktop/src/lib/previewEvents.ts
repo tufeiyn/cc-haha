@@ -19,6 +19,7 @@ export async function subscribePreviewEvents(sessionId: string): Promise<() => v
     else if (msg.type === 'screenshot' && msg.dataUrl) {
       useChatStore.getState().queueComposerPrefill(sessionId, {
         text: '',
+        mode: 'append',
         attachments: [{ type: 'image', name: `screenshot-${kindLabel(msg.kind)}.png`, mimeType: 'image/png', data: msg.dataUrl }],
       })
     }

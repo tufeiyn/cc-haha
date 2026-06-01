@@ -121,7 +121,7 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
       return next
     })
   }, [])
-  const { sendMessage, stopGeneration, clearComposerInsertion } = useChatStore()
+  const { sendMessage, stopGeneration, clearComposerPrefill, clearComposerInsertion } = useChatStore()
   const activeTabId = useTabStore((s) => s.activeTabId)
   const sessionState = useChatStore((s) => activeTabId ? s.sessions[activeTabId] : undefined)
   const chatState = sessionState?.chatState ?? 'idle'
@@ -230,21 +230,25 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
   }, [isActive])
 
   useEffect(() => {
-    if (!composerPrefill) return
+    if (!composerPrefill || !activeTabId) return
 
-    setComposerInput(composerPrefill.text)
-    setComposerAttachments(
-      (composerPrefill.attachments ?? [])
-        .filter((attachment) => attachment.type === 'image' || attachment.data)
-        .map((attachment, index) => ({
-          id: `rewind-prefill-${composerPrefill.nonce}-${index}`,
-          name: attachment.name,
-          type: attachment.type,
-          mimeType: attachment.mimeType,
-          previewUrl: attachment.type === 'image' ? attachment.data : undefined,
-          data: attachment.data,
-        })),
-    )
+    const nextAttachments = (composerPrefill.attachments ?? [])
+      .filter((attachment) => attachment.type === 'image' || attachment.data)
+      .map((attachment, index) => ({
+        id: `composer-prefill-${composerPrefill.nonce}-${index}`,
+        name: attachment.name,
+        type: attachment.type,
+        mimeType: attachment.mimeType,
+        previewUrl: attachment.type === 'image' ? attachment.data : undefined,
+        data: attachment.data,
+      }))
+
+    if (composerPrefill.mode === 'append') {
+      setComposerAttachments((previous) => [...previous, ...nextAttachments])
+    } else {
+      setComposerInput(composerPrefill.text)
+      setComposerAttachments(nextAttachments)
+    }
     setPlusMenuOpen(false)
     setSlashMenuOpen(false)
     setFileSearchOpen(false)
@@ -255,10 +259,19 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
     requestAnimationFrame(() => {
       const el = textareaRef.current
       el?.focus()
-      const cursor = composerPrefill.text.length
-      el?.setSelectionRange(cursor, cursor)
+      if (composerPrefill.mode !== 'append') {
+        const cursor = composerPrefill.text.length
+        el?.setSelectionRange(cursor, cursor)
+      }
     })
-  }, [composerPrefill, setComposerAttachments, setComposerInput])
+    clearComposerPrefill(activeTabId, composerPrefill.nonce)
+  }, [
+    activeTabId,
+    clearComposerPrefill,
+    composerPrefill,
+    setComposerAttachments,
+    setComposerInput,
+  ])
 
   useEffect(() => {
     if (!composerInsertion || !activeTabId || isMemberSession) return
