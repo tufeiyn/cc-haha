@@ -252,7 +252,7 @@ async function handleCommandInvoke(payload: unknown): Promise<unknown> {
 
 function registerIpcHandlers() {
   ipcMain.on(ELECTRON_INTERNAL_CHANNELS.previewMessageFromView, (event, raw) => {
-    getPreviewService().sendMessageToRenderer(event.sender, raw, mainWindow?.webContents)
+    void getPreviewService().sendMessageToRenderer(event.sender, raw, mainWindow?.webContents)
   })
   registerHandler(ELECTRON_IPC_CHANNELS.appGetVersion, () => app.getVersion())
   registerHandler(ELECTRON_IPC_CHANNELS.runtimeGetServerUrl, () => getServerRuntime().getServerUrl())
@@ -337,7 +337,7 @@ function registerIpcHandlers() {
   registerHandler(ELECTRON_IPC_CHANNELS.previewSetBounds, (_event, payload) => getPreviewService().setBounds(payload as PreviewBounds))
   registerHandler(ELECTRON_IPC_CHANNELS.previewSetVisible, (_event, payload) => getPreviewService().setVisible(Boolean(payload)))
   registerHandler(ELECTRON_IPC_CHANNELS.previewClose, () => getPreviewService().close())
-  registerHandler(ELECTRON_IPC_CHANNELS.previewMessage, (_event, payload) => getPreviewService().message(payload))
+  registerHandler(ELECTRON_IPC_CHANNELS.previewMessage, (event, payload) => getPreviewService().message(payload, event.sender))
   registerHandler(ELECTRON_IPC_CHANNELS.appModeGet, () => getAppMode(app))
   registerHandler(ELECTRON_IPC_CHANNELS.appModeSet, (_event, payload) => setAppMode(app, payload as Parameters<typeof setAppMode>[1]))
   registerHandler(ELECTRON_IPC_CHANNELS.appModeDetectPortableDir, () => detectPortableDir(app) as PortableDetection)
