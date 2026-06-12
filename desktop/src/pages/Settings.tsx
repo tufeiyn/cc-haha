@@ -44,6 +44,7 @@ import { publicAssetPath } from '../lib/publicAsset'
 import {
   getDesktopNotificationPermission,
   notifyDesktop,
+  getDesktopNotificationPlatform,
   openDesktopNotificationSettings,
   requestDesktopNotificationPermission,
   type DesktopNotificationPermission,
@@ -59,6 +60,7 @@ import { copyTextToClipboard } from '../components/chat/clipboard'
 const NETWORK_TIMEOUT_MIN_SECONDS = 5
 const NETWORK_TIMEOUT_MAX_SECONDS = 600
 const NETWORK_TIMEOUT_STEP_SECONDS = 30
+const SETTINGS_CHECKBOX_INPUT_CLASS = 'settings-checkbox-input peer'
 
 function buildH5LaunchUrl(baseUrl: string | null, token: string | null): string | null {
   if (!baseUrl) return null
@@ -1652,14 +1654,11 @@ export function GeneralSettings() {
     try {
       const permission = await requestDesktopNotificationPermission()
       setNotificationPermission(permission)
-      if (permission === 'granted') {
+      if (permission === 'granted' && getDesktopNotificationPlatform() !== 'win32') {
         void notifyDesktop({
           title: t('settings.general.notificationsTestTitle'),
           body: t('settings.general.notificationsTestBody'),
         })
-      }
-      if (permission === 'denied') {
-        await openDesktopNotificationSettings()
       }
     } finally {
       setNotificationActionRunning(false)
@@ -2096,13 +2095,13 @@ export function GeneralSettings() {
       <div className="mt-8">
         <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.thinkingTitle')}</h2>
         <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.thinkingDescription')}</p>
-        <label className="flex items-start gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-3 cursor-pointer hover:border-[var(--color-border-focus)] transition-colors">
+        <label className="relative flex items-start gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-3 cursor-pointer hover:border-[var(--color-border-focus)] transition-colors">
           <input
             type="checkbox"
             aria-label={t('settings.general.thinkingEnabled')}
             checked={thinkingEnabled}
             onChange={(e) => void setThinkingEnabled(e.target.checked)}
-            className="peer sr-only"
+            className={SETTINGS_CHECKBOX_INPUT_CLASS}
           />
           <SettingsCheckboxMark checked={thinkingEnabled} />
           <div className="min-w-0">
@@ -2119,13 +2118,13 @@ export function GeneralSettings() {
       <div className="mt-8">
         <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.autoDreamTitle')}</h2>
         <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.autoDreamDescription')}</p>
-        <label className="flex items-start gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-3 cursor-pointer hover:border-[var(--color-border-focus)] transition-colors">
+        <label className="relative flex items-start gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-3 cursor-pointer hover:border-[var(--color-border-focus)] transition-colors">
           <input
             type="checkbox"
             aria-label={t('settings.general.autoDreamEnabled')}
             checked={autoDreamEnabled}
             onChange={(e) => handleAutoDreamToggle(e.target.checked)}
-            className="peer sr-only"
+            className={SETTINGS_CHECKBOX_INPUT_CLASS}
           />
           <SettingsCheckboxMark checked={autoDreamEnabled} />
           <div className="min-w-0">
@@ -2144,13 +2143,13 @@ export function GeneralSettings() {
       <div className="mt-8">
         <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.traceTitle')}</h2>
         <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.traceDescription')}</p>
-        <label className="flex items-start gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-3 cursor-pointer hover:border-[var(--color-border-focus)] transition-colors">
+        <label className="relative flex items-start gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-3 cursor-pointer hover:border-[var(--color-border-focus)] transition-colors">
           <input
             type="checkbox"
             aria-label={t('settings.general.traceEnabled')}
             checked={traceCapture.enabled}
             onChange={(e) => void setTraceCaptureEnabled(e.target.checked)}
-            className="peer sr-only"
+            className={SETTINGS_CHECKBOX_INPUT_CLASS}
           />
           <SettingsCheckboxMark checked={traceCapture.enabled} />
           <div className="min-w-0 flex-1">
@@ -2173,13 +2172,13 @@ export function GeneralSettings() {
         <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.notificationsTitle')}</h2>
         <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.notificationsDescription')}</p>
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-3">
-          <label className="flex items-start gap-3 cursor-pointer">
+          <label className="relative flex items-start gap-3 cursor-pointer">
             <input
               type="checkbox"
               aria-label={t('settings.general.notificationsEnabled')}
               checked={desktopNotificationsEnabled}
               onChange={(e) => void handleDesktopNotificationsToggle(e.target.checked)}
-              className="peer sr-only"
+              className={SETTINGS_CHECKBOX_INPUT_CLASS}
             />
             <SettingsCheckboxMark checked={desktopNotificationsEnabled} />
             <div className="min-w-0 flex-1">
@@ -2396,13 +2395,13 @@ export function GeneralSettings() {
       <div className="mt-8">
         <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.webFetchPreflightTitle')}</h2>
         <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.webFetchPreflightDescription')}</p>
-        <label className="flex items-start gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-3 cursor-pointer hover:border-[var(--color-border-focus)] transition-colors">
+        <label className="relative flex items-start gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-3 cursor-pointer hover:border-[var(--color-border-focus)] transition-colors">
           <input
             type="checkbox"
             aria-label={t('settings.general.webFetchPreflightEnabled')}
             checked={skipWebFetchPreflight}
             onChange={(e) => void setSkipWebFetchPreflight(e.target.checked)}
-            className="peer sr-only"
+            className={SETTINGS_CHECKBOX_INPUT_CLASS}
           />
           <SettingsCheckboxMark checked={skipWebFetchPreflight} />
           <div className="min-w-0">

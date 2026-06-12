@@ -16,6 +16,7 @@ const MOCK_GET_SETTINGS = vi.fn()
 const MOCK_UPDATE_SETTINGS = vi.fn()
 const desktopNotificationsMock = vi.hoisted(() => ({
   getDesktopNotificationPermission: vi.fn(),
+  getDesktopNotificationPlatform: vi.fn(),
   notifyDesktop: vi.fn(),
   requestDesktopNotificationPermission: vi.fn(),
   openDesktopNotificationSettings: vi.fn(),
@@ -165,10 +166,12 @@ describe('Settings > General tab', () => {
     vi.useRealTimers()
     MOCK_DELETE_PROVIDER.mockReset()
     desktopNotificationsMock.getDesktopNotificationPermission.mockReset()
+    desktopNotificationsMock.getDesktopNotificationPlatform.mockReset()
     desktopNotificationsMock.notifyDesktop.mockReset()
     desktopNotificationsMock.requestDesktopNotificationPermission.mockReset()
     desktopNotificationsMock.openDesktopNotificationSettings.mockReset()
     desktopNotificationsMock.getDesktopNotificationPermission.mockResolvedValue('default')
+    desktopNotificationsMock.getDesktopNotificationPlatform.mockReturnValue('darwin')
     desktopNotificationsMock.notifyDesktop.mockResolvedValue(true)
     desktopNotificationsMock.requestDesktopNotificationPermission.mockResolvedValue('granted')
     desktopNotificationsMock.openDesktopNotificationSettings.mockResolvedValue(true)
@@ -207,6 +210,7 @@ describe('Settings > General tab', () => {
       autoDreamEnabled: false,
       skipWebFetchPreflight: true,
       desktopNotificationsEnabled: true,
+      traceCapture: { enabled: true, storageDir: '/Users/test/.claude/cc-haha/traces' },
       chatSendBehavior: 'enter',
       responseLanguage: '',
       uiZoom: 1,
@@ -254,6 +258,10 @@ describe('Settings > General tab', () => {
       }),
       setDesktopNotificationsEnabled: vi.fn().mockImplementation(async (enabled: boolean) => {
         useSettingsStore.setState({ desktopNotificationsEnabled: enabled })
+      }),
+      setTraceCaptureEnabled: vi.fn().mockImplementation(async (enabled: boolean) => {
+        const current = useSettingsStore.getState().traceCapture
+        useSettingsStore.setState({ traceCapture: { ...current, enabled } })
       }),
       setChatSendBehavior: vi.fn().mockImplementation(async (chatSendBehavior: ChatSendBehavior) => {
         useSettingsStore.setState({ chatSendBehavior })
@@ -757,6 +765,43 @@ describe('Settings > General tab', () => {
     expect(useSettingsStore.getState().setAutoDreamEnabled).toHaveBeenCalledWith(false)
   })
 
+  it('keeps General checkbox inputs anchored inside their visible rows', () => {
+    render(<Settings />)
+
+    fireEvent.click(screen.getByText('General'))
+
+    for (const label of [
+      'Enable thinking mode',
+      'Enable Auto-dream',
+      'Collect agent traces',
+      'Enable system notifications',
+      'Skip WebFetch domain preflight',
+    ]) {
+      const toggle = screen.getByLabelText(label)
+      const row = toggle.closest('label') as HTMLElement | null
+      expect(toggle).toHaveClass('settings-checkbox-input')
+      expect(toggle).not.toHaveClass('sr-only')
+      expect(row).not.toBeNull()
+      expect(row!).toHaveClass('relative')
+    }
+  })
+
+  it('lets the user disable Agent Trace collection without leaving General settings', async () => {
+    render(<Settings />)
+
+    fireEvent.click(screen.getByText('General'))
+    expect(screen.getByLabelText('Collect agent traces')).toBeChecked()
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Collect agent traces'))
+    })
+
+    expect(useSettingsStore.getState().setTraceCaptureEnabled).toHaveBeenCalledWith(false)
+    expect(screen.getByLabelText('Collect agent traces')).not.toBeChecked()
+    expect(screen.getByText('Agent trace')).toBeInTheDocument()
+    expect(screen.getByText('Message Sending')).toBeInTheDocument()
+  })
+
   it('uses the shared dropdown for response language', () => {
     render(<Settings />)
 
@@ -805,7 +850,25 @@ describe('Settings > General tab', () => {
     })
   })
 
-  it('opens system settings when enabling notifications finds system denial', async () => {
+  it('does not fire the enable smoke notification on Windows Electron', async () => {
+    useSettingsStore.setState({ desktopNotificationsEnabled: false })
+    desktopNotificationsMock.getDesktopNotificationPlatform.mockReturnValue('win32')
+    render(<Settings />)
+
+    fireEvent.click(screen.getByText('General'))
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Enable system notifications'))
+    })
+
+    expect(useSettingsStore.getState().setDesktopNotificationsEnabled).toHaveBeenCalledWith(true)
+    await vi.waitFor(() => {
+      expect(desktopNotificationsMock.requestDesktopNotificationPermission).toHaveBeenCalledTimes(1)
+    })
+    expect(desktopNotificationsMock.notifyDesktop).not.toHaveBeenCalled()
+    expect(desktopNotificationsMock.openDesktopNotificationSettings).not.toHaveBeenCalled()
+  })
+
+  it('shows the system settings action when enabling notifications finds system denial', async () => {
     useSettingsStore.setState({ desktopNotificationsEnabled: false })
     desktopNotificationsMock.requestDesktopNotificationPermission.mockResolvedValue('denied')
     render(<Settings />)
@@ -816,8 +879,15 @@ describe('Settings > General tab', () => {
     })
 
     await vi.waitFor(() => {
-      expect(desktopNotificationsMock.openDesktopNotificationSettings).toHaveBeenCalledTimes(1)
+      expect(screen.getByText('Permission: Blocked by system settings')).toBeInTheDocument()
     })
+    expect(desktopNotificationsMock.openDesktopNotificationSettings).not.toHaveBeenCalled()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Open Settings' }))
+    })
+
+    expect(desktopNotificationsMock.openDesktopNotificationSettings).toHaveBeenCalledTimes(1)
   })
 
   it('moves H5 access out of General into its own Settings tab', () => {
