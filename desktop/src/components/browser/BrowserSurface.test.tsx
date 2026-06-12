@@ -16,6 +16,7 @@ vi.mock('../../lib/previewBridge', () => ({ previewBridge: bridge }))
 vi.mock('@tauri-apps/api/event', () => ({ listen: () => Promise.resolve(() => {}) }))
 
 import { BrowserSurface } from './BrowserSurface'
+import { getDefaultBaseUrl, setBaseUrl } from '../../api/client'
 import { useBrowserPanelStore } from '../../stores/browserPanelStore'
 import { useWorkspacePanelStore } from '../../stores/workspacePanelStore'
 import { useOverlayStore } from '../../stores/overlayStore'
@@ -28,6 +29,7 @@ afterEach(() => {
   // browserPanelStore.open() now also opens the unified workbench; keep it isolated.
   useWorkspacePanelStore.setState(useWorkspacePanelStore.getInitialState(), true)
   useOverlayStore.setState(useOverlayStore.getInitialState(), true)
+  setBaseUrl(getDefaultBaseUrl())
 })
 
 describe('BrowserSurface', () => {
@@ -74,6 +76,27 @@ describe('BrowserSurface', () => {
     fireEvent.submit(input.closest('form')!)
     expect(bridge.open).toHaveBeenCalledWith('http://localhost:3000', expect.objectContaining({ width: expect.any(Number) }))
     expect(bridge.navigate).not.toHaveBeenCalled()
+  })
+
+  it('opens a typed file URL for local html through the local-file preview route', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }))
+    setBaseUrl('http://127.0.0.1:8787')
+    useBrowserPanelStore.getState().ensureBlank('s1')
+    render(<BrowserSurface sessionId="s1" />)
+
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: 'file:///private/tmp/report.html' } })
+    fireEvent.submit(input.closest('form')!)
+
+    await waitFor(() => {
+      expect(bridge.open).toHaveBeenCalledWith(
+        'http://127.0.0.1:8787/local-file/private/tmp/report.html',
+        expect.objectContaining({ width: expect.any(Number) }),
+      )
+    })
+    expect(useBrowserPanelStore.getState().bySession['s1']!.url).toBe(
+      'http://127.0.0.1:8787/local-file/private/tmp/report.html',
+    )
   })
 
   it('navigating via address bar calls store + bridge', () => {

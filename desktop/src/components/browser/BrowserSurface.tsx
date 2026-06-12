@@ -2,7 +2,9 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import { Camera, Loader2, MousePointer2 } from 'lucide-react'
 import { BrowserAddressBar } from './BrowserAddressBar'
 import { computeWebviewBounds } from './computeWebviewBounds'
-import { isLoopbackHostname } from '../../lib/desktopRuntime'
+import { getServerBaseUrl, isLoopbackHostname } from '../../lib/desktopRuntime'
+import { classifyPreviewLink } from '../../lib/previewLinkRouter'
+import { isAbsoluteLocalPath, localFileUrl, previewFsUrl } from '../../lib/handlePreviewLink'
 import { previewBridge } from '../../lib/previewBridge'
 import { subscribePreviewEvents } from '../../lib/previewEvents'
 import { useBrowserPanelStore } from '../../stores/browserPanelStore'
@@ -36,6 +38,21 @@ async function waitForLocalPreview(url: string): Promise<void> {
   } finally {
     window.clearTimeout(timeout)
   }
+}
+
+function resolveBrowserNavigationUrl(input: string, sessionId: string): string {
+  const value = input.trim()
+  if (!value) return ''
+
+  const classified = classifyPreviewLink(value)
+  if (classified.kind === 'browser-file' && classified.path) {
+    const serverBaseUrl = getServerBaseUrl()
+    return isAbsoluteLocalPath(classified.path)
+      ? localFileUrl(serverBaseUrl, classified.path)
+      : previewFsUrl(serverBaseUrl, sessionId, classified.path)
+  }
+
+  return value
 }
 
 export function BrowserSurface({ sessionId }: { sessionId: string }) {
@@ -126,7 +143,8 @@ export function BrowserSurface({ sessionId }: { sessionId: string }) {
 
   if (!session) return null
 
-  const openOrNavigate = (url: string) => {
+  const openOrNavigate = (inputUrl: string) => {
+    const url = resolveBrowserNavigationUrl(inputUrl, sessionId)
     if (!url) return
     const current = useBrowserPanelStore.getState().bySession[sessionId]
     store.navigate(sessionId, url)
