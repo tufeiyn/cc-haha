@@ -1943,7 +1943,21 @@ async function* queryModel(
     );
     const STREAM_IDLE_TIMEOUT_MS =
       parseInt(process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS || "", 10) || 90_000;
-    const STREAM_IDLE_WARNING_MS = STREAM_IDLE_TIMEOUT_MS / 2;
+    // Budget for the FIRST chunk after response headers arrive (the prefill /
+    // time-to-first-token phase). Slow local models and 3P gateways can spend
+    // minutes prefilling a large context while emitting zero SSE bytes (#826);
+    // the SDK request timeout only covers up to the response headers, so the
+    // mid-stream idle watchdog (STREAM_IDLE_TIMEOUT_MS) otherwise kills these
+    // healthy-but-slow requests long before the user's configured timeout.
+    // Falls back to API_TIMEOUT_MS (the user's request-timeout knob), then to
+    // the idle value so terminal CLI behavior is unchanged when unset.
+    const STREAM_FIRST_TOKEN_TIMEOUT_MS =
+      parseInt(process.env.CLAUDE_STREAM_FIRST_TOKEN_TIMEOUT_MS || "", 10) ||
+      parseInt(process.env.API_TIMEOUT_MS || "", 10) ||
+      STREAM_IDLE_TIMEOUT_MS;
+    // The idle watchdog waits the first-token budget until the first chunk
+    // arrives, then switches to the shorter mid-stream idle budget (#826).
+    let currentStreamIdleTimeoutMs = STREAM_FIRST_TOKEN_TIMEOUT_MS;
     // Overall wall-clock cap for a single streaming response. UNLIKE the idle
     // timer, this is NEVER reset by incoming chunks, so it catches upstreams that
     // trickle content deltas (e.g. a large tool_use input_json_delta) just fast
@@ -1975,6 +1989,10 @@ async function* queryModel(
       if (!streamWatchdogEnabled) {
         return;
       }
+      // Snapshot the active budget so a fire reports the value it was armed
+      // with, even if the phase (first-token → idle) flips between arm and fire.
+      const idleMs = currentStreamIdleTimeoutMs;
+      const warningMs = idleMs / 2;
       streamIdleWarningTimer = setTimeout(
         (warnMs) => {
           logForDebugging(
@@ -1983,15 +2001,15 @@ async function* queryModel(
           );
           logForDiagnosticsNoPII("warn", "cli_streaming_idle_warning");
         },
-        STREAM_IDLE_WARNING_MS,
-        STREAM_IDLE_WARNING_MS,
+        warningMs,
+        warningMs,
       );
       streamIdleTimer = setTimeout(() => {
         streamIdleAborted = true;
         streamAbortReason = "idle";
         streamWatchdogFiredAt = performance.now();
         logForDebugging(
-          `Streaming idle timeout: no chunks received for ${STREAM_IDLE_TIMEOUT_MS / 1000}s, aborting stream`,
+          `Streaming idle timeout: no chunks received for ${idleMs / 1000}s, aborting stream`,
           { level: "error" },
         );
         logForDiagnosticsNoPII("error", "cli_streaming_idle_timeout");
@@ -2000,10 +2018,10 @@ async function* queryModel(
             options.model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
           request_id: (streamRequestId ??
             "unknown") as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-          timeout_ms: STREAM_IDLE_TIMEOUT_MS,
+          timeout_ms: idleMs,
         });
         releaseStreamResources();
-      }, STREAM_IDLE_TIMEOUT_MS);
+      }, idleMs);
     }
     resetStreamIdleTimer();
     // Arm the overall-duration watchdog exactly once. It is intentionally NOT
@@ -2078,6 +2096,13 @@ async function* queryModel(
           }
           endQueryProfile();
           isFirstChunk = false;
+          // Tokens are flowing — switch the watchdog from the generous
+          // first-token (prefill) budget to the shorter mid-stream idle budget,
+          // so a stall *after* output started is still reclaimed quickly (#826).
+          if (currentStreamIdleTimeoutMs !== STREAM_IDLE_TIMEOUT_MS) {
+            currentStreamIdleTimeoutMs = STREAM_IDLE_TIMEOUT_MS;
+            resetStreamIdleTimer();
+          }
         }
 
         switch (part.type) {
