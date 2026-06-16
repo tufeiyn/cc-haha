@@ -129,6 +129,13 @@ describe('release desktop workflow', () => {
     expect(signedBuildStep).toContain('APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}')
     expect(signedBuildStep).toContain('APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}')
     expect(signedBuildStep).not.toContain('CSC_IDENTITY_AUTO_DISCOVERY')
+    expect(signedBuildStep).toContain('timeout-minutes: 45')
+    expect(signedBuildStep).toContain("DEBUG: 'electron-builder,electron-osx-sign,electron-notarize*'")
+    expect(signedBuildStep).toContain('macOS signing diagnostics')
+    expect(signedBuildStep).toContain('xcrun --find notarytool')
+    expect(signedBuildStep).toContain('security find-identity -v -p codesigning')
+    expect(signedBuildStep).toContain('Starting signed electron-builder')
+    expect(signedBuildStep).toContain('Finished signed electron-builder')
     expect(signedBuildStep).toContain(electronBuilderCli)
 
     expect(unsignedBuildStep).toContain("if: matrix.smoke_platform != 'macos' || needs.signing-preflight.outputs.macos_signed != 'true'")

@@ -161,8 +161,10 @@ jobs:
       - name: Build signed macOS Electron release artifacts
         if: matrix.smoke_platform == 'macos' && needs.signing-preflight.outputs.macos_signed == 'true'
         working-directory: desktop
+        timeout-minutes: 45
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEBUG: 'electron-builder,electron-osx-sign,electron-notarize*'
           # Signed macOS releases require all of these secrets. Keep this step
           # separate from the unsigned fallback so empty secrets are never passed
           # to electron-builder as CSC_LINK / APPLE_* env vars.
@@ -171,7 +173,19 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: node ./node_modules/electron-builder/out/cli/cli.js ${{ matrix.builder_args }} --publish never
+        run: |
+          set -euo pipefail
+          echo "::group::macOS signing diagnostics"
+          echo "UTC start: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          sw_vers
+          xcodebuild -version
+          xcrun --find notarytool
+          xcrun notarytool --version || true
+          security find-identity -v -p codesigning || true
+          echo "::endgroup::"
+          echo "Starting signed electron-builder at $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          node ./node_modules/electron-builder/out/cli/cli.js ${{ matrix.builder_args }} --publish never
+          echo "Finished signed electron-builder at $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
       - name: Build unsigned Electron release artifacts
         if: matrix.smoke_platform != 'macos' || needs.signing-preflight.outputs.macos_signed != 'true'
