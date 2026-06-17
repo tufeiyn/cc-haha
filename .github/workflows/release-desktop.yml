@@ -587,7 +587,7 @@ jobs:
           tag_name: v${{ steps.version.outputs.value }}
           name: Claude Code Haha v${{ steps.version.outputs.value }}
           body: ${{ steps.release_notes.outputs.body }}
-          draft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
+          draft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft == true }}
           prerelease: false
           fail_on_unmatched_files: true
           files: |
@@ -599,3 +599,9 @@ jobs:
             artifacts/release-assets/**/*.blockmap
             artifacts/update-metadata-standard/*.yml
             desktop/scripts/install-macos-unsigned.sh
+
+      - name: Ensure workflow-dispatch release remains draft
+        if: github.event_name == 'workflow_dispatch' && inputs.draft == true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "v${{ steps.version.outputs.value }}" --draft --repo "${{ github.repository }}"
