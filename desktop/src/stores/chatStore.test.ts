@@ -215,6 +215,40 @@ describe('chatStore history mapping', () => {
     })
   })
 
+  it('does not prewarm an existing transcript when opening it for history review', () => {
+    sessionStoreSnapshot.sessions = [{
+      id: TEST_SESSION_ID,
+      title: 'Existing transcript',
+      createdAt: '2026-06-20T10:00:00.000Z',
+      modifiedAt: '2026-06-20T10:30:00.000Z',
+      messageCount: 4,
+      projectPath: '/workspace/project',
+      workDir: '/workspace/project',
+      workDirExists: true,
+    }]
+
+    useChatStore.getState().connectToSession(TEST_SESSION_ID)
+
+    expect(sendMock).not.toHaveBeenCalledWith(TEST_SESSION_ID, { type: 'prewarm_session' })
+  })
+
+  it('still prewarms empty placeholder sessions so new chats start quickly', () => {
+    sessionStoreSnapshot.sessions = [{
+      id: TEST_SESSION_ID,
+      title: 'New Session',
+      createdAt: '2026-06-20T10:00:00.000Z',
+      modifiedAt: '2026-06-20T10:00:00.000Z',
+      messageCount: 0,
+      projectPath: '/workspace/project',
+      workDir: '/workspace/project',
+      workDirExists: true,
+    }]
+
+    useChatStore.getState().connectToSession(TEST_SESSION_ID)
+
+    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, { type: 'prewarm_session' })
+  })
+
   it('preserves thinking blocks when restoring transcript history', () => {
     const messages: MessageEntry[] = [
       {

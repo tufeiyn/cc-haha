@@ -892,6 +892,11 @@ async function fetchAndMapSessionHistory(sessionId: string) {
 
 const historyLoadsInFlight = new Map<string, Promise<void>>()
 
+function shouldPrewarmSession(sessionId: string): boolean {
+  const knownSession = useSessionStore.getState().sessions.find((session) => session.id === sessionId)
+  return !knownSession || knownSession.messageCount === 0
+}
+
 export const useChatStore = create<ChatStore>((set, get) => ({
   sessions: {},
 
@@ -938,7 +943,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     if (runtimeSelection) {
       wsManager.send(sessionId, { type: 'set_runtime_config', ...runtimeSelection })
     }
-    if (!sessionId.startsWith('__') && !useTeamStore.getState().getMemberBySessionId(sessionId)) {
+    if (
+      !sessionId.startsWith('__') &&
+      !useTeamStore.getState().getMemberBySessionId(sessionId) &&
+      shouldPrewarmSession(sessionId)
+    ) {
       wsManager.send(sessionId, { type: 'prewarm_session' })
     }
 
