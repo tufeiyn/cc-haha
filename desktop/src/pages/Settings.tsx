@@ -928,6 +928,27 @@ function normalizeModelMapping(models: ModelMapping): ModelMapping {
   }
 }
 
+function readSettingsEnvString(env: Record<string, unknown>, key: string): string | undefined {
+  const value = env[key]
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed || undefined
+}
+
+function readModelMappingFromSettingsEnv(env: Record<string, unknown>): Partial<ModelMapping> {
+  const haiku = readSettingsEnvString(env, 'ANTHROPIC_DEFAULT_HAIKU_MODEL')
+  const sonnet = readSettingsEnvString(env, 'ANTHROPIC_DEFAULT_SONNET_MODEL')
+  const opus = readSettingsEnvString(env, 'ANTHROPIC_DEFAULT_OPUS_MODEL')
+  const main = readSettingsEnvString(env, 'ANTHROPIC_MODEL') ?? sonnet ?? haiku ?? opus
+
+  return {
+    ...(main ? { main } : {}),
+    ...(haiku ? { haiku } : {}),
+    ...(sonnet ? { sonnet } : {}),
+    ...(opus ? { opus } : {}),
+  }
+}
+
 function applyToolSearchEnv(
   env: Record<string, unknown>,
   apiFormat: ApiFormat,
@@ -1854,11 +1875,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
                       parsedContextWindows = {}
                     }
                   }
-                  const newModels: Partial<ModelMapping> = {}
-                  if (env.ANTHROPIC_MODEL) newModels.main = env.ANTHROPIC_MODEL
-                  if (env.ANTHROPIC_DEFAULT_HAIKU_MODEL) newModels.haiku = env.ANTHROPIC_DEFAULT_HAIKU_MODEL
-                  if (env.ANTHROPIC_DEFAULT_SONNET_MODEL) newModels.sonnet = env.ANTHROPIC_DEFAULT_SONNET_MODEL
-                  if (env.ANTHROPIC_DEFAULT_OPUS_MODEL) newModels.opus = env.ANTHROPIC_DEFAULT_OPUS_MODEL
+                  const newModels = readModelMappingFromSettingsEnv(env)
                   if (Object.keys(newModels).length > 0) {
                     setModels((prev) => {
                       const mergedModels = { ...prev, ...newModels }

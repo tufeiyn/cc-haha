@@ -1683,6 +1683,100 @@ describe('Settings > Providers tab', () => {
     })
   })
 
+  it('uses request model env instead of cc-switch display model names when testing pasted settings JSON', async () => {
+    providerStoreState.testConfig = vi.fn().mockResolvedValue({
+      connectivity: {
+        success: false,
+        latencyMs: 3,
+        error: '未配置供应商',
+        modelUsed: 'claude-sonnet-4-6',
+        httpStatus: 503,
+      },
+    })
+    providerStoreState.presets = [
+      {
+        id: 'deepseek',
+        name: 'DeepSeek',
+        baseUrl: 'https://api.deepseek.com/anthropic',
+        apiFormat: 'anthropic',
+        defaultModels: {
+          main: 'deepseek-v4-pro',
+          haiku: 'deepseek-v4-flash',
+          sonnet: 'deepseek-v4-pro',
+          opus: 'deepseek-v4-pro',
+        },
+        needsApiKey: true,
+        websiteUrl: '',
+      },
+      {
+        id: 'custom',
+        name: 'Custom',
+        baseUrl: '',
+        apiFormat: 'anthropic',
+        defaultModels: {
+          main: '',
+          haiku: '',
+          sonnet: '',
+          opus: '',
+        },
+        needsApiKey: true,
+        websiteUrl: '',
+      },
+    ]
+
+    render(<Settings />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Add Provider|添加服务商/i }))
+    const dialog = screen.getByRole('dialog')
+    const settingsTextarea = await waitFor(() => {
+      const textarea = dialog.querySelector('textarea')
+      expect(textarea?.value).toContain('"ANTHROPIC_MODEL"')
+      return textarea as HTMLTextAreaElement
+    })
+
+    fireEvent.change(settingsTextarea, {
+      target: {
+        value: JSON.stringify({
+          env: {
+            ANTHROPIC_API_KEY: 'PROXY_MANAGED',
+            ANTHROPIC_BASE_URL: 'http://127.0.0.1:15721',
+            ANTHROPIC_DEFAULT_FABLE_MODEL: 'Qwen3Coder',
+            ANTHROPIC_DEFAULT_HAIKU_MODEL: 'claude-haiku-4-5',
+            ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME: 'Qwen3Coder',
+            ANTHROPIC_DEFAULT_OPUS_MODEL: 'claude-opus-4-8',
+            ANTHROPIC_DEFAULT_OPUS_MODEL_NAME: 'Qwen3Coder',
+            ANTHROPIC_DEFAULT_SONNET_MODEL: 'claude-sonnet-4-6',
+            ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: 'Qwen3Coder',
+          },
+        }, null, 2),
+      },
+    })
+
+    await waitFor(() => {
+      expect(within(dialog).getByLabelText(/Main Model|主模型/i)).toHaveValue('claude-sonnet-4-6')
+      expect(within(dialog).getByLabelText(/Haiku Model/i)).toHaveValue('claude-haiku-4-5')
+      expect(within(dialog).getByLabelText(/Opus Model/i)).toHaveValue('claude-opus-4-8')
+    })
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /Test Connection/i }))
+
+    await waitFor(() => {
+      expect(providerStoreState.testConfig).toHaveBeenCalledWith(expect.objectContaining({
+        baseUrl: 'http://127.0.0.1:15721',
+        apiKey: 'PROXY_MANAGED',
+        modelId: 'claude-sonnet-4-6',
+        authStrategy: 'api_key',
+        apiFormat: 'anthropic',
+      }))
+    })
+    expect(providerStoreState.testConfig).not.toHaveBeenCalledWith(expect.objectContaining({
+      modelId: 'Qwen3Coder',
+    }))
+    expect(providerStoreState.testConfig).not.toHaveBeenCalledWith(expect.objectContaining({
+      modelId: 'deepseek-v4-pro',
+    }))
+  })
+
   it('keeps the provider form locked while save is in flight', async () => {
     let resolveCreate!: (provider: SavedProvider) => void
     providerStoreState.createProvider = vi.fn().mockImplementation(() => new Promise<SavedProvider>((resolve) => {
