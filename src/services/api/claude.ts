@@ -446,7 +446,7 @@ function should1hCacheTTL(querySource?: QuerySource): boolean {
  * Configure effort parameters for API request.
  *
  */
-function configureEffortParams(
+export function configureEffortParams(
   effortValue: EffortValue | undefined,
   outputConfig: BetaOutputConfig,
   extraBodyParams: Record<string, unknown>,
@@ -458,6 +458,7 @@ function configureEffortParams(
   }
 
   if (effortValue === undefined) {
+    outputConfig.effort = "high";
     betas.push(EFFORT_BETA_HEADER);
   } else if (typeof effortValue === "string") {
     // Send string effort level as is
