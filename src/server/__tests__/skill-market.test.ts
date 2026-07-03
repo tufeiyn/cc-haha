@@ -454,6 +454,30 @@ describe('skill market service source selection', () => {
     })
   })
 
+  it('falls back to SkillHub in auto mode when ClawHub fetch throws', async () => {
+    const fetchCalls: string[] = []
+    const service = createSkillMarketService({
+      fetchImpl: async (url) => {
+        fetchCalls.push(String(url))
+        if (String(url).startsWith('https://clawhub.ai/')) {
+          throw new Error('network down')
+        }
+        return Response.json(SKILLHUB_TOP_SKILLS_RESPONSE)
+      },
+      installedSkillNames: async () => new Set(),
+    })
+
+    const result = await service.listSkills({ source: 'auto' })
+
+    expect(fetchCalls).toHaveLength(2)
+    expect(fetchCalls[0]).toStartWith('https://clawhub.ai/api/v1/skills')
+    expect(fetchCalls[1]).toStartWith('https://api.skillhub.cn/api/skills')
+    expect(result.source).toBe('skillhub')
+    expect(result.sourceStatus).toBe('fallback')
+    expect(result.message).toContain('ClawHub unavailable')
+    expect(result.message).toContain('network down')
+  })
+
   it("does not fallback to SkillHub when source is 'clawhub'", async () => {
     const fetchCalls: string[] = []
     const service = createSkillMarketService({
@@ -508,7 +532,7 @@ describe('skill market service source selection', () => {
     })
 
     await expect(
-      service.listSkills({ source: 'anthropic-github' as 'auto' }),
+      service.listSkills({ source: 'future-source' as 'auto' }),
     ).rejects.toThrow('Unsupported skill market source')
 
     expect(fetchCalls).toHaveLength(0)

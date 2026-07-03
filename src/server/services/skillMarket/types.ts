@@ -1,4 +1,4 @@
-export type SkillMarketSource = 'clawhub' | 'skillhub' | 'anthropic-github'
+export type SkillMarketSource = 'clawhub' | 'skillhub'
 export type SkillMarketSourceMode = 'primary' | 'fallback' | 'enhanced'
 
 export type SkillMarketTrustState =
