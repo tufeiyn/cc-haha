@@ -92,6 +92,18 @@ export type ServerMessage =
       requestId: string
       request: ComputerUsePermissionRequest
     }
+  | {
+      type: 'permission_resolved'
+      requestId: string
+      permissionType: 'tool' | 'computer_use'
+      allowed?: boolean
+    }
+  | {
+      type: 'permission_requests_snapshot'
+      toolRequestIds: string[]
+      computerUseRequestIds: string[]
+      turnActive: boolean
+    }
   | { type: 'user_message_replay'; content: string }
   | { type: 'message_complete'; usage: TokenUsage }
   | { type: 'thinking'; text: string }

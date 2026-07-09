@@ -68,6 +68,30 @@ describe('translateCliMessage usage mapping', () => {
       },
     }])
   })
+
+  it('maps SDK permission cancellation and response events to resolution messages', () => {
+    expect(translateCliMessage({
+      type: 'control_cancel_request',
+      request_id: 'permission-1',
+    }, 'session-1')).toEqual([{
+      type: 'permission_resolved',
+      requestId: 'permission-1',
+      permissionType: 'tool',
+    }])
+
+    expect(translateCliMessage({
+      type: 'control_response',
+      response: {
+        request_id: 'permission-2',
+        response: { behavior: 'deny' },
+      },
+    }, 'session-1')).toEqual([{
+      type: 'permission_resolved',
+      requestId: 'permission-2',
+      permissionType: 'tool',
+      allowed: false,
+    }])
+  })
 })
 
 describe('WebSocket handler session isolation', () => {
@@ -154,6 +178,146 @@ describe('WebSocket handler session isolation', () => {
       },
       description: 'Answer questions?',
     })
+    expect(ws.sent.map((payload) => JSON.parse(payload))).toContainEqual({
+      type: 'permission_requests_snapshot',
+      toolRequestIds: ['request-ask-1'],
+      computerUseRequestIds: [],
+      turnActive: false,
+    })
+  })
+
+  it('tracks and replays pending Computer Use requests when a client reconnects', async () => {
+    const sessionId = `computer-use-reconnect-${crypto.randomUUID()}`
+    const first = makeClientSocket(sessionId)
+    const second = makeClientSocket(sessionId)
+    const request = {
+      requestId: 'cu-request-1',
+      reason: 'Inspect another app',
+      apps: [],
+      requestedFlags: {},
+      screenshotFiltering: 'native' as const,
+    }
+    const response = {
+      granted: [],
+      denied: [],
+      flags: {
+        clipboardRead: false,
+        clipboardWrite: false,
+        systemKeyCombos: false,
+      },
+      userConsented: true,
+    }
+
+    handleWebSocket.open(first)
+    const approval = computerUseApprovalService.requestApproval(sessionId, request)
+    expect(computerUseApprovalService.getPendingRequests(sessionId)).toEqual([request])
+
+    handleWebSocket.open(second)
+
+    expect(second.sent.map((payload) => JSON.parse(payload))).toEqual([
+      { type: 'connected', sessionId },
+      {
+        type: 'computer_use_permission_request',
+        requestId: request.requestId,
+        request,
+      },
+      {
+        type: 'permission_requests_snapshot',
+        toolRequestIds: [],
+        computerUseRequestIds: [request.requestId],
+        turnActive: false,
+      },
+    ])
+
+    expect(computerUseApprovalService.resolveApproval(request.requestId, response)).toBe(true)
+    await expect(approval).resolves.toEqual(response)
+    expect(computerUseApprovalService.getPendingRequests(sessionId)).toEqual([])
+  })
+
+  it('marks a registered pre-send user turn active in the reconnect snapshot', () => {
+    const sessionId = `pending-turn-reconnect-${crypto.randomUUID()}`
+    const ws = makeClientSocket(sessionId)
+    __registerPendingUserTurnForTests(sessionId)
+
+    handleWebSocket.open(ws)
+
+    expect(ws.sent.map((payload) => JSON.parse(payload))).toContainEqual({
+      type: 'permission_requests_snapshot',
+      toolRequestIds: [],
+      computerUseRequestIds: [],
+      turnActive: true,
+    })
+  })
+
+  it('does not revive a stopped turn in the reconnect snapshot', () => {
+    const sessionId = `stopped-turn-reconnect-${crypto.randomUUID()}`
+    const first = makeClientSocket(sessionId)
+    const second = makeClientSocket(sessionId)
+    handleWebSocket.open(first)
+    __markActiveTurnForTests(sessionId)
+
+    handleWebSocket.message(first, JSON.stringify({ type: 'stop_generation' }))
+    handleWebSocket.open(second)
+
+    expect(second.sent.map((payload) => JSON.parse(payload))).toContainEqual({
+      type: 'permission_requests_snapshot',
+      toolRequestIds: [],
+      computerUseRequestIds: [],
+      turnActive: false,
+    })
+  })
+
+  it('broadcasts tool and Computer Use permission resolutions to every client', () => {
+    const sessionId = `permission-resolution-${crypto.randomUUID()}`
+    const first = makeClientSocket(sessionId)
+    const second = makeClientSocket(sessionId)
+    spyOn(conversationService, 'respondToPermission').mockReturnValue(true)
+    spyOn(computerUseApprovalService, 'resolveApproval').mockReturnValue(true)
+
+    handleWebSocket.open(first)
+    handleWebSocket.open(second)
+    first.sent.length = 0
+    second.sent.length = 0
+
+    handleWebSocket.message(first, JSON.stringify({
+      type: 'permission_response',
+      requestId: 'permission-1',
+      allowed: true,
+    }))
+
+    for (const ws of [first, second]) {
+      expect(ws.sent.map((payload) => JSON.parse(payload))).toContainEqual({
+        type: 'permission_resolved',
+        requestId: 'permission-1',
+        permissionType: 'tool',
+        allowed: true,
+      })
+      ws.sent.length = 0
+    }
+
+    handleWebSocket.message(second, JSON.stringify({
+      type: 'computer_use_permission_response',
+      requestId: 'cu-1',
+      response: {
+        granted: [],
+        denied: [],
+        flags: {
+          clipboardRead: false,
+          clipboardWrite: false,
+          systemKeyCombos: false,
+        },
+        userConsented: false,
+      },
+    }))
+
+    for (const ws of [first, second]) {
+      expect(ws.sent.map((payload) => JSON.parse(payload))).toContainEqual({
+        type: 'permission_resolved',
+        requestId: 'cu-1',
+        permissionType: 'computer_use',
+        allowed: false,
+      })
+    }
   })
 
   it('keeps disconnected sessions alive longer while user input is pending', () => {

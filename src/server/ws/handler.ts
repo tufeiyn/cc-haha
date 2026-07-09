@@ -209,7 +209,15 @@ export const handleWebSocket = {
 
     const msg: ServerMessage = { type: 'connected', sessionId }
     ws.send(JSON.stringify(msg))
-    replayPendingPermissionRequests(ws, sessionId)
+    const toolRequestIds = replayPendingPermissionRequests(ws, sessionId)
+    const computerUseRequestIds = replayPendingComputerUsePermissionRequests(ws, sessionId)
+    sendMessage(ws, {
+      type: 'permission_requests_snapshot',
+      toolRequestIds,
+      computerUseRequestIds,
+      turnActive:
+        hasPendingOrActiveUserTurn(sessionId) && !sessionStopRequested.has(sessionId),
+    })
   },
 
   message(ws: ServerWebSocket<WebSocketData>, rawMessage: string | Buffer) {
@@ -621,7 +629,7 @@ function handlePermissionResponse(
   message: Extract<ClientMessage, { type: 'permission_response' }>
 ) {
   const { sessionId } = ws.data
-  conversationService.respondToPermission(
+  const resolved = conversationService.respondToPermission(
     sessionId,
     message.requestId,
     message.allowed,
@@ -630,6 +638,14 @@ function handlePermissionResponse(
     message.denyMessage,
     message.permissionUpdates,
   )
+  if (resolved) {
+    sendToSession(sessionId, {
+      type: 'permission_resolved',
+      requestId: message.requestId,
+      permissionType: 'tool',
+      allowed: message.allowed,
+    })
+  }
   console.log(`[WS] Permission response for ${message.requestId}: ${message.allowed}`)
 }
 
@@ -646,7 +662,14 @@ function handleComputerUsePermissionResponse(
     console.warn(
       `[WS] Ignored Computer Use permission response for unknown request ${message.requestId} from ${sessionId}`
     )
+    return
   }
+  sendToSession(sessionId, {
+    type: 'permission_resolved',
+    requestId: message.requestId,
+    permissionType: 'computer_use',
+    allowed: message.response.userConsented !== false,
+  })
 }
 
 async function handleSetPermissionMode(
@@ -1729,8 +1752,32 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
       return []
     }
 
-    case 'control_response':
-      return []
+    case 'control_cancel_request':
+      return typeof cliMsg.request_id === 'string'
+        ? [{
+            type: 'permission_resolved',
+            requestId: cliMsg.request_id,
+            permissionType: 'tool',
+          }]
+        : []
+
+    case 'control_response': {
+      const requestId = typeof cliMsg.response?.request_id === 'string'
+        ? cliMsg.response.request_id
+        : typeof cliMsg.request_id === 'string'
+          ? cliMsg.request_id
+          : null
+      if (!requestId) return []
+      const behavior = cliMsg.response?.response?.behavior
+      return [{
+        type: 'permission_resolved',
+        requestId,
+        permissionType: 'tool',
+        ...(behavior === 'allow' || behavior === 'deny'
+          ? { allowed: behavior === 'allow' }
+          : {}),
+      }]
+    }
 
     case 'result': {
       // 对话结果（成功或错误）
@@ -2131,8 +2178,9 @@ function cancelSessionDisconnectWatcher(sessionId: string): void {
 function replayPendingPermissionRequests(
   ws: ServerWebSocket<WebSocketData>,
   sessionId: string,
-): void {
-  for (const request of conversationService.getPendingPermissionRequests(sessionId)) {
+): string[] {
+  const requests = conversationService.getPendingPermissionRequests(sessionId)
+  for (const request of requests) {
     sendMessage(ws, {
       type: 'permission_request',
       requestId: request.requestId,
@@ -2142,6 +2190,22 @@ function replayPendingPermissionRequests(
       ...(request.description ? { description: request.description } : {}),
     })
   }
+  return requests.map((request) => request.requestId)
+}
+
+function replayPendingComputerUsePermissionRequests(
+  ws: ServerWebSocket<WebSocketData>,
+  sessionId: string,
+): string[] {
+  const requests = computerUseApprovalService.getPendingRequests(sessionId)
+  for (const request of requests) {
+    sendMessage(ws, {
+      type: 'computer_use_permission_request',
+      requestId: request.requestId,
+      request,
+    })
+  }
+  return requests.map((request) => request.requestId)
 }
 
 function getDesktopSlashCommand(content: string): ReturnType<typeof parseSlashCommand> {
